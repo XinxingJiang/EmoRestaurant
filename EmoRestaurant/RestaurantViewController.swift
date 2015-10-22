@@ -1,0 +1,187 @@
+//
+//  RestaurantViewController.swift
+//  EmoRestaurant
+//
+//  Created by YUE on 2/3/15.
+//  Copyright (c) 2015 Stanford University. All rights reserved.
+//
+
+import UIKit
+import MapKit
+
+class RestaurantViewController: UIViewController {
+    
+    // MARK: - Model
+    
+    var restaurant: PFObject!
+    
+    var isFavorite: Bool? {
+        didSet {
+            if isFavorite != nil {
+                if isFavorite! {
+                    favoritesButton.setTitle(Constants.RemoveFromFavorites, forState: UIControlState.Normal)
+                } else {
+                    favoritesButton.setTitle(Constants.AddToFavorite, forState: UIControlState.Normal)
+                }
+            }
+        }
+    }
+    
+    // MARK: - Outlets
+    
+    @IBOutlet weak var imageView: UIImageView!
+    @IBOutlet weak var nameLabel: UILabel!
+    @IBOutlet weak var phoneLabel: UILabel!
+    @IBOutlet weak var favoritesButton: UIButton!
+    @IBOutlet weak var commentButton: UIButton!
+    
+    // MARK: - View Controller Life Cycle
+    
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        navigationController?.navigationBarHidden = false
+    }
+    
+    override func viewWillAppear(animated: Bool) {
+        super.viewWillAppear(animated)
+        setup() // initialize name, address, image
+        checkIsFavorite()
+    }
+    
+    // MARK: - Setup
+    
+    private func setup() {
+        if restaurant != nil {
+            let name = restaurant.objectForKey(Database.RestaurantName) as! String
+            let chineseName = restaurant.objectForKey(Database.RestaurantChineseName) as! String
+            var restaurantName = name
+            if chineseName.characters.count > 0 {
+                restaurantName += " (\(chineseName))"
+            }
+            nameLabel.text = restaurantName
+            phoneLabel.text = restaurant!.objectForKey(Database.Phone) as? String ?? ""
+            if let imageFile = restaurant!.objectForKey(Database.ProfileImage) as? PFFile {
+                let qos = Int(QOS_CLASS_USER_INITIATED.rawValue)
+                dispatch_async(dispatch_get_global_queue(qos, 0)) { [weak self] in
+                    if let imageData = imageFile.getData() {
+                        if let image = UIImage(data: imageData) {
+                            dispatch_async(dispatch_get_main_queue()) {
+                                self!.imageView.image = image
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // MARK: Favorites
+    
+    // whether this restaurant is in user's favorites
+    private func checkIsFavorite() {
+        let query = PFQuery(className: Database.UserAndRestaurant)
+        query.whereKey(Database.Username, equalTo: PFUser.currentUser().username)
+        query.whereKey(Database.Restaurant, equalTo: nameLabel.text)
+        query.findObjectsInBackgroundWithBlock { (data, error) in
+            if error == nil {
+                if !data.isEmpty { // is favorite
+                    self.isFavorite = true
+                } else {
+                    self.isFavorite = false
+                }
+            }
+        }
+    }
+    
+    // if the restaurant is in favorites, remove it
+    // otherwise, add it to favorite
+    @IBAction func flipFavorite() {
+        if isFavorite != nil {
+            if isFavorite! { // remove favorite
+                let query = PFQuery(className: Database.UserAndRestaurant)
+                query.whereKey(Database.Username, equalTo: PFUser.currentUser().username)
+                query.whereKey(Database.Restaurant, equalTo: nameLabel.text)
+                query.findObjectsInBackgroundWithBlock { (data, error) in
+                    if error == nil {
+                        if let result = data as? [PFObject] {
+                            result.first?.deleteInBackgroundWithBlock { (_, error) in
+                                if error == nil {
+                                    let alert = UIAlertController(title: "Success!", message: "", preferredStyle: UIAlertControllerStyle.Alert)
+                                    alert.addAction(UIAlertAction(title: "Back", style: .Cancel, handler: nil))
+                                    self.presentViewController(alert, animated: true, completion: nil)
+                                } else {
+                                    let alert = UIAlertController(title: "Error!", message: Error.PleaseTryAgainLater, preferredStyle: UIAlertControllerStyle.Alert)
+                                    alert.addAction(UIAlertAction(title: "Back", style: .Cancel, handler: nil))
+                                    self.presentViewController(alert, animated: true, completion: nil)
+                                }
+                            }
+                        }
+                        self.checkIsFavorite()
+                    }
+                }
+            } else { // add to favorite
+                let favorite = PFObject(className: Database.UserAndRestaurant)
+                favorite[Database.Username] = PFUser.currentUser().username
+                favorite[Database.Restaurant] = nameLabel.text ?? ""
+                favorite.saveInBackgroundWithBlock { (_, error) in
+                    if error == nil {
+                        let alert = UIAlertController(title: "Success", message: "", preferredStyle: UIAlertControllerStyle.Alert)
+                        alert.addAction(UIAlertAction(title: "Back", style: UIAlertActionStyle.Default, handler: nil))
+                        self.presentViewController(alert, animated: true, completion: nil)
+                    }
+                    self.checkIsFavorite()
+                }
+            }
+            
+        }
+    }
+    
+    // MARK: - Apple Map
+    
+    @IBAction func getDirection() {
+        let longitude = restaurant?.objectForKey(Database.Longitude) as? CLLocationDistance ?? 0.0
+        let latitude = restaurant?.objectForKey(Database.Latitue) as? CLLocationDistance ?? 0.0
+        let coordinates = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+        let regionDistance: CLLocationDistance = Map.RegionDistance
+        let regionSpan = MKCoordinateRegionMakeWithDistance(coordinates, regionDistance, regionDistance)
+        let options = [
+            MKLaunchOptionsMapCenterKey: NSValue(MKCoordinate: regionSpan.center),
+            MKLaunchOptionsMapSpanKey: NSValue(MKCoordinateSpan: regionSpan.span)
+        ]
+        let placemark = MKPlacemark(coordinate: coordinates, addressDictionary: nil)
+        let mapItem = MKMapItem(placemark: placemark)
+        mapItem.name = nameLabel.text ?? Error.UnknownPlace
+        mapItem.openInMapsWithLaunchOptions(options)
+    }
+    
+    // MARK: - Navigation
+    
+    @IBAction func goBackToRestaurant(segue: UIStoryboardSegue) {
+        
+    }
+    
+    override func prepareForSegue(segue: UIStoryboardSegue, sender: AnyObject?) {
+        if let identifier = segue.identifier {
+            switch identifier {
+            case StoryBoard.EmbeddedComments:
+                if let ctvc = segue.destinationViewController as? CommentsTableViewController {
+                    let restaurantName = restaurant!.valueForKey(Database.RestaurantName) as! String
+                    ctvc.restaurantName = restaurantName
+                }
+            case StoryBoard.WriteComment:
+                if let wcvc = segue.destinationViewController as? WriteCommentViewController {
+                    wcvc.restaurantName = nameLabel.text
+                }
+            default:
+                break
+            }
+        }
+    }
+    
+    // MARK: - Constants
+    
+    private struct Constants {
+        static let AddToFavorite = "Add to Favorites"
+        static let RemoveFromFavorites = "Remove Favorites"
+    }
+}

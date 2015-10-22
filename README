@@ -1,0 +1,25 @@
+user:yue0930
+user:jxx09
+
+Please run the app on iPhone, use the test account: Username = "123", Password = "123".
+
+List of features:
+Label
+Button
+BarButtonItem
+TextField
+TextView
+Stepper
+ImageView
+CollectionView
+ContainerView
+TableView
+TabBarView
+NavigationController
+Asynchronous
+Parse
+MapKit, Apple Map
+Camera
+CLLocation coordinate
+Activity Indicator
+Segue, Unwind Segue
